@@ -1,0 +1,89 @@
+name: Build AVF Guest Kernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Kernel Manifest Branch'
+        required: true
+        default: 'common-android16-6.12'
+        type: string
+      config_file:
+        description: 'Path to config file in repository'
+        required: true
+        default: 'original-config-from-phone.txt'
+        type: string
+
+jobs:
+  build-kernel:
+    name: Sync and Build Kernel
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # Free up runner disk space for the massive AOSP kernel source
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Install Dependencies & repo tool
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git python3 curl
+          
+          # Install 'repo'
+          mkdir -p ~/bin
+          curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+          chmod a+x ~/bin/repo
+          echo "~/bin" >> $GITHUB_PATH
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Sync Kernel Source
+        run: |
+          mkdir android16-guest-kernel
+          cd android16-guest-kernel
+          
+          # Initialize and sync via repo
+          repo init -u https://android.googlesource.com/kernel/manifest -b ${{ inputs.branch }} --depth=1
+          repo sync -c -j$(nproc) --no-clone-bundle --no-tags --optimized-fetch
+
+      - name: Verify Kernel Commit
+        working-directory: ./android16-guest-kernel
+        run: |
+          # Halts the workflow if the target commit is not found in the synced source
+          git -C common log --oneline | grep 72b352c6a-ab
+
+      - name: Prepare Build Environment
+        run: |
+          # Copy repository files into the kernel workspace
+          cp ${{ inputs.config_file }} android16-guest-kernel/original-config-from-phone.txt
+          cp build-kernel.sh android16-guest-kernel/build-kernel.sh
+
+      - name: Build Kernel
+        working-directory: ./android16-guest-kernel
+        run: |
+          chmod +x build-kernel.sh
+          # Execute the custom build script
+          ./build-kernel.sh
+
+      - name: Upload Kernel Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AVF-Guest-Kernel-vmlinuz
+          path: android16-guest-kernel/vmlinuz
+          if-no-files-found: error
+          retention-days: 7
+          
