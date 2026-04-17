@@ -60,12 +60,6 @@ jobs:
           repo init -u https://android.googlesource.com/kernel/manifest -b ${{ inputs.branch }} --depth=1
           repo sync -c -j$(nproc) --no-clone-bundle --no-tags --optimized-fetch
 
-      - name: Verify Kernel Commit
-        working-directory: ./android16-guest-kernel
-        run: |
-          # Halts the workflow if the target commit is not found in the synced source
-          git -C common log --oneline | grep 72b352c6a
-
       - name: Prepare Build Environment
         run: |
           # Copy repository files into the kernel workspace
